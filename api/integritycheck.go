@@ -27,8 +27,9 @@ type (
 	integrityCheckJobs struct {
 		contracts ContractManager
 
-		mu     sync.Mutex // protects checks
-		checks map[types.FileContractID]IntegrityCheckResult
+		mu          sync.Mutex // protects checks
+		checks      map[types.FileContractID]IntegrityCheckResult
+		cancelFuncs map[types.FileContractID]context.CancelFunc
 	}
 )
 
@@ -36,6 +37,14 @@ type (
 func (ic *integrityCheckJobs) ClearResult(contractID types.FileContractID) bool {
 	ic.mu.Lock()
 	defer ic.mu.Unlock()
+
+	// Cancel in-progress checks
+	if cancel, ok := ic.cancelFuncs[contractID]; ok {
+		cancel()
+		delete(ic.cancelFuncs, contractID)
+	}
+
+	// Clear Result
 	_, exists := ic.checks[contractID]
 	if !exists {
 		return false
@@ -63,10 +72,13 @@ func (ic *integrityCheckJobs) CheckContract(contractID types.FileContractID) (ui
 		return 0, fmt.Errorf("integrity check already running for contract %v", contractID)
 	}
 
-	results, roots, err := ic.contracts.CheckIntegrity(context.Background(), contractID)
+	ctx, cancel := context.WithCancel(context.Background())
+	results, roots, err := ic.contracts.CheckIntegrity(ctx, contractID)
 	if err != nil {
+		cancel()
 		return 0, fmt.Errorf("failed to check contract integrity: %w", err)
 	}
+	ic.cancelFuncs[contractID] = cancel
 
 	check = IntegrityCheckResult{
 		Start:        time.Now(),
