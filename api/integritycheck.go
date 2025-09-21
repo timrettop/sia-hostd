@@ -30,6 +30,9 @@ type (
 		mu          sync.Mutex // protects checks
 		checks      map[types.FileContractID]IntegrityCheckResult
 		cancelFuncs map[types.FileContractID]context.CancelFunc
+		mu          sync.Mutex // protects checks
+		checks      map[types.FileContractID]IntegrityCheckResult
+		cancelFuncs map[types.FileContractID]context.CancelFunc
 	}
 )
 
@@ -102,6 +105,12 @@ func (ic *integrityCheckJobs) CheckContract(contractID types.FileContractID) (ui
 		check.End = time.Now()
 		ic.checks[contractID] = check
 		ic.mu.Unlock()
+
+		defer func() {
+			ic.mu.Lock()
+			delete(ic.cancelFuncs, contractID)
+			ic.mu.Unlock()
+		}()
 	}()
 	return roots, nil
 }

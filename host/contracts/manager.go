@@ -1,6 +1,7 @@
 package contracts
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -67,6 +68,8 @@ type (
 		wallet  Wallet
 
 		locks *locker // contracts must be locked while they are being modified
+
+		cancelCheck map[types.FileContractID]context.CancelFunc
 
 		mu sync.Mutex // guards the following fields
 		// caches the sector roots of all contracts to avoid long reads from
@@ -373,6 +376,15 @@ func (cm *Manager) isGoodForModification(contract Contract) error {
 	return nil
 }
 
+func (cm *Manager) CancelIntegrityCheck(contractID types.FileContractID) {
+	cm.mu.Lock()
+	defer cm.mu.Unlock()
+	if cancel, ok := cm.cancelCheck[contractID]; ok {
+		cancel()
+		delete(cm.cancelCheck, contractID)
+	}
+}
+
 // NewManager creates a new contract manager.
 func NewManager(store ContractStore, storage StorageManager, chain ChainManager, wallet Wallet, opts ...ManagerOption) (*Manager, error) {
 	cm := &Manager{
@@ -387,6 +399,8 @@ func NewManager(store ContractStore, storage StorageManager, chain ChainManager,
 		alerts: alerts.NewNop(),
 		tg:     threadgroup.New(),
 		log:    zap.NewNop(),
+
+		cancelCheck: make(map[types.FileContractID]context.CancelFunc),
 
 		locks: newLocker(),
 	}
